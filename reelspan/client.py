@@ -411,8 +411,8 @@ class _Posts(_Group):
     def status(self, request_id: Optional[str] = None, job_id: Optional[str] = None) -> Dict[str, Any]:
         return self._c.request("GET", "/v1/posts/status", query={"request_id": request_id, "job_id": job_id})
 
-    def wait(self, request_id: str, timeout: float = 600.0, interval: float = 3.0) -> Dict[str, Any]:
-        """Polls the status until every network has finished, or the timeout passes."""
+    def wait(self, request_id: str, timeout: float = 600.0, interval: float = 5.0) -> Dict[str, Any]:
+        """Polls the status (every 5 s by default, the API's advice) until every network has finished, or the timeout passes."""
         end = time.monotonic() + timeout
         while True:
             s = self.status(request_id=request_id)
@@ -420,9 +420,13 @@ class _Posts(_Group):
                 return s
             time.sleep(interval)
 
-    def retry(self, request_id: str, platforms: Optional[Sequence[str]] = None) -> Dict[str, Any]:
-        """Sends the failed networks again, with the media it already has."""
-        return self._c.request("POST", "/v1/posts/retry", json_body={"request_id": request_id, "platforms": list(platforms) if platforms else None}, idempotency_key=str(uuid.uuid4()))
+    def retry(self, request_id: str, platforms: Optional[Sequence[str]] = None, fields: Optional[Mapping[str, Any]] = None, job_id: Optional[str] = None) -> Dict[str, Any]:
+        """Sends the failed networks again, with the media it already has.
+
+        ``fields`` changes settings for this try (e.g. a new caption). Not repeated automatically on a network error:
+        the server can't tell a repeat from a new retry.
+        """
+        return self._c.request("POST", "/v1/posts/retry", json_body={"request_id": request_id, "job_id": job_id, "platforms": list(platforms) if platforms else None, "fields": dict(fields) if fields else None})
 
     def history(self, **query: Any) -> Dict[str, Any]:
         """One page of history (page=, limit= 10/20/50/100, platform=, status=, profile_username=, start=, end=…)."""
@@ -464,8 +468,8 @@ class _Queue(_Group):
     def set_settings(self, username: str, **settings: Any) -> Dict[str, Any]:
         return self._c.request("POST", "/v1/queue/settings", json_body={"profile_username": username, **settings})
 
-    def preview(self, username: str) -> Dict[str, Any]:
-        return self._c.request("GET", "/v1/queue/preview", query={"profile_username": username})
+    def preview(self, username: str, count: Optional[int] = None) -> Dict[str, Any]:
+        return self._c.request("GET", "/v1/queue/preview", query={"profile_username": username, "count": count})
 
     def next_slot(self, username: str) -> Dict[str, Any]:
         return self._c.request("GET", "/v1/queue/next-slot", query={"profile_username": username})
@@ -497,7 +501,7 @@ class _Media(_Group):
 
     def _in_parts(self, src: _Source, kind: str, on_progress: Optional[Callable[[int, int], None]]) -> Dict[str, Any]:
         c = self._c
-        start = c.request("POST", "/v1/media/uploads", json_body={"kind": kind, "size_bytes": src.size, "filename": src.name}, idempotency_key=str(uuid.uuid4()))
+        start = c.request("POST", "/v1/media/uploads", json_body={"kind": kind, "size_bytes": src.size, "filename": src.name})
         part_size = int(start["part_size"])
         done: List[Dict[str, Any]] = []
         sent = [0]
@@ -528,7 +532,7 @@ class _Media(_Group):
         try:
             with ThreadPoolExecutor(max_workers=3) as pool:
                 list(pool.map(put, start["parts"]))
-            return c.request("POST", f"/v1/media/uploads/{parse.quote(start['media_id'])}/complete", json_body={"parts": sorted(done, key=lambda p: p["part_number"])}, idempotency_key=str(uuid.uuid4()))
+            return c.request("POST", f"/v1/media/uploads/{parse.quote(start['media_id'])}/complete", json_body={"parts": sorted(done, key=lambda p: p["part_number"])})
         except BaseException:
             try:
                 c.request("POST", f"/v1/media/uploads/{parse.quote(start['media_id'])}/abort", max_retries=0)
@@ -611,8 +615,9 @@ class _Analytics(_Group):
 
 
 class _Approvals(_Group):
-    def create(self, user: str, job_ids: Sequence[str], title: Optional[str] = None, note: Optional[str] = None, expires_in_days: Optional[int] = None) -> Dict[str, Any]:
-        return self._c.request("POST", "/v1/approval-links", json_body={"profile_username": user, "job_ids": list(job_ids), "title": title, "note": note, "expires_in_days": expires_in_days})
+    def create(self, user: str, job_ids: Optional[Sequence[str]] = None, title: Optional[str] = None, note: Optional[str] = None, expires_in_days: Optional[int] = None, request_ids: Optional[Sequence[str]] = None) -> Dict[str, Any]:
+        """Scheduled posts by ``job_ids``, or every post of a request by ``request_ids``."""
+        return self._c.request("POST", "/v1/approval-links", json_body={"profile_username": user, "job_ids": list(job_ids) if job_ids else None, "request_ids": list(request_ids) if request_ids else None, "title": title, "note": note, "expires_in_days": expires_in_days})
 
     def list(self, username: Optional[str] = None) -> Dict[str, Any]:
         return self._c.request("GET", "/v1/approval-links", query={"profile_username": username})
@@ -650,8 +655,8 @@ class _Webhooks(_Group):
     def test(self) -> Dict[str, Any]:
         return self._c.request("POST", "/v1/webhook/test")
 
-    def deliveries(self) -> Dict[str, Any]:
-        return self._c.request("GET", "/v1/webhook/deliveries")
+    def deliveries(self, limit: Optional[int] = None) -> Dict[str, Any]:
+        return self._c.request("GET", "/v1/webhook/deliveries", query={"limit": limit})
 
     def redeliver(self, delivery_id: str) -> Dict[str, Any]:
         return self._c.request("POST", f"/v1/webhook/deliveries/{parse.quote(delivery_id)}/redeliver")
