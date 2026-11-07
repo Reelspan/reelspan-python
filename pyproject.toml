@@ -26,8 +26,8 @@ dependencies = []
 
 [project.urls]
 Homepage = "https://reelspan.com"
-Source = "https://github.com/reelspan/reelspan-python"
-Issues = "https://github.com/reelspan/reelspan-python/issues"
+Source = "https://github.com/Reelspan/reelspan-python"
+Issues = "https://github.com/Reelspan/reelspan-python/issues"
 Documentation = "https://reelspan.com/docs/sdks"
 Changelog = "https://reelspan.com/docs/sdks#changelog"
 
