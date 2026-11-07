@@ -11,5 +11,5 @@ First public release.
 - Retries with backoff on network errors, 408, 409, 429 and 5xx, honouring `Retry-After`; POSTs are retried only with
   an idempotency key, and every post gets one automatically.
 - Large files go to storage in parts, three at a time, with progress and per-part retries.
-- Standard library only, fully typed (py.typed); Python 3.9+. Large files are read from disk in parts, never whole.
+- Standard library only, fully typed (py.typed); Python 3.10+. Large files are read from disk in parts, never whole.
 - `ReelspanError` (status, code, retry_after) and `ReelspanConnectionError`; `verify_webhook` for signed webhooks.

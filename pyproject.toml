@@ -7,7 +7,7 @@ name = "reelspan"
 dynamic = ["version"]
 description = "Official Python client for the Reelspan API: publish videos, photos and text to TikTok, YouTube, Instagram, Facebook, X, Threads, LinkedIn, Pinterest, Bluesky, Reddit and 12 more networks from one call."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Anjum Labs", email = "support@reelspan.com" }]

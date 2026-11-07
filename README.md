@@ -5,7 +5,7 @@ post to TikTok, YouTube, Instagram, Facebook, X, Threads, LinkedIn, Pinterest, B
 Telegram, Discord, Slack, Mastodon, Nostr, Lemmy, Dev.to, Hashnode, WordPress, Whop and Listmonk, schedule it, and read
 how it did.
 
-- Standard library only. Python 3.9+, fully typed.
+- Standard library only. Python 3.10+, fully typed.
 - Retries network errors, 429s and 5xx answers with backoff, honouring `Retry-After`.
 - Every post carries an `Idempotency-Key`, so a retried post is never published twice.
 - Large files go straight to storage in parts, read from disk piece by piece, with progress and per-part retries.
