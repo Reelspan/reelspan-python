@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "reelspan"
+dynamic = ["version"]
+description = "Official Python client for the Reelspan API: publish videos, photos and text to TikTok, YouTube, Instagram, Facebook, X, Threads, LinkedIn, Pinterest, Bluesky, Reddit and 12 more networks from one call."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Anjum Labs", email = "support@reelspan.com" }]
+keywords = ["reelspan", "social media", "social media api", "publishing", "scheduling", "tiktok", "youtube", "instagram", "linkedin", "bluesky", "reddit", "upload-post"]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Internet :: WWW/HTTP",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Typing :: Typed",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://reelspan.com"
+Source = "https://github.com/reelspan/reelspan-python"
+Issues = "https://github.com/reelspan/reelspan-python/issues"
+Documentation = "https://reelspan.com/docs/sdks"
+Changelog = "https://reelspan.com/docs/sdks#changelog"
+
+[tool.setuptools]
+packages = ["reelspan"]
+
+[tool.setuptools.dynamic]
+version = { attr = "reelspan._version.__version__" }
+
+[tool.setuptools.package-data]
+reelspan = ["py.typed"]
