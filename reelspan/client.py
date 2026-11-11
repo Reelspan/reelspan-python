@@ -572,16 +572,6 @@ class _Library(_Group):
 class _Ai(_Group):
     """Captions written by AI (each call uses one AI credit)."""
 
-    def captions_from_video(self, video: FileInput, platforms: Optional[Sequence[str]] = None, language: Optional[str] = None, context: Optional[str] = None) -> Dict[str, Any]:
-        """Captions for each network from a video file or public URL: frames and speech are read on the server."""
-        form: Dict[str, Any] = {"platforms": ",".join(platforms) if platforms else None, "language": language, "context": context}
-        files: List[Tuple[str, FileInput]] = []
-        if _is_url(video):
-            form["video"] = video
-        else:
-            files.append(("video", video))
-        return self._c.request("POST", "/v1/ai/video-captions", form=form, files=files)
-
     def write_captions(self, *, text: Optional[str] = None, notes: Optional[str] = None, media_id: Optional[str] = None, photo_media_ids: Optional[Sequence[str]] = None, platforms: Optional[Sequence[str]] = None, kind: Optional[str] = None, language: Optional[str] = None) -> Dict[str, Any]:
         """Captions for each network from whatever the post has: your text, an uploaded video or photos."""
         return self._c.request("POST", "/v1/ai/adapt-captions", json_body={"text": text, "notes": notes, "media_id": media_id, "photo_media_ids": list(photo_media_ids) if photo_media_ids else None, "platforms": list(platforms) if platforms else None, "kind": kind, "language": language})
