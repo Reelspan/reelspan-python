@@ -2,7 +2,7 @@
 
 The official Python client for the [Reelspan API](https://reelspan.com/docs). Publish one video, photo set or text
 post to TikTok, YouTube, Instagram, Facebook, X, Threads, LinkedIn, Pinterest, Bluesky, Reddit, Google Business,
-Telegram, Discord, Slack, Mastodon, Lemmy, Dev.to, Hashnode, WordPress and more, schedule it, and read
+Telegram, Discord, Slack, Mastodon, Dev.to, Hashnode, WordPress and more, schedule it, and read
 how it did.
 
 - Standard library only. Python 3.10+, fully typed.

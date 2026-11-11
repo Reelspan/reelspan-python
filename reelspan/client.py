@@ -325,7 +325,7 @@ class _Accounts(_Group):
     def connect(self, username: str, platform: str, **credentials: Any) -> Dict[str, Any]:
         """Connects a network that uses credentials instead of an OAuth sign-in.
 
-        Telegram, Discord, Slack, Mastodon, WordPress, Dev.to, Hashnode, Lemmy and Bluesky. The
+        Telegram, Discord, Slack, Mastodon, WordPress, Dev.to, Hashnode and Bluesky. The
         fields are checked with the network first; Upload-Post's names work too, e.g. ``chat_id=``, ``instance_url=``.
         """
         return self._c.request("POST", f"/v1/accounts/{parse.quote(platform)}", json_body={"profile_username": username, **credentials})
