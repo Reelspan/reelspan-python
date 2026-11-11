@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.2
+
+- Removed captions from a video file (`POST /v1/ai/video-captions` is gone). Upload the video, then write captions
+  from its media id with `ai.write_captions(media_id=...)`.
+
 ## 1.0.1
 
 - Dropped Whop, Listmonk, Nostr and Lemmy, which Reelspan no longer supports.
