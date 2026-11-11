@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.1
+
+- Dropped Whop, Listmonk, Nostr and Lemmy, which Reelspan no longer supports.
+
 ## 1.0.0
 
 First public release.
