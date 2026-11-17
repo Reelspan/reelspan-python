@@ -163,6 +163,63 @@ class ClientTest(unittest.TestCase):
         self.assertEqual(json.loads(SEEN[0]["body"]), {"profile_username": "brand", "bot_token": "1:abc", "chat_id": "@news"})
 
 
+    def test_comments_list_and_moderate(self):
+        self.client.comments.list("youtube", "brand", "vid1", held=True, limit=10)
+        self.assertEqual(SEEN[0]["path"], "/v1/comments?platform=youtube&user=brand&post_id=vid1&held=true&limit=10")
+        self.client.comments.moderate("instagram", "brand", "hide", "c9")
+        self.assertEqual(SEEN[1]["path"], "/v1/comments/action")
+        self.assertEqual(json.loads(SEEN[1]["body"]), {"platform": "instagram", "user": "brand", "action": "hide", "comment_id": "c9"})
+        self.client.comments.delete("instagram", "brand", "c9")
+        self.assertEqual(SEEN[2]["method"], "DELETE")
+        self.assertEqual(json.loads(SEEN[2]["body"]), {"platform": "instagram", "user": "brand", "comment_id": "c9"})
+
+    def test_dms_and_autodm(self):
+        self.client.dms.send("instagram", "brand", "u1", "Thanks!", buttons=[{"title": "Open", "url": "https://example.com"}])
+        self.assertEqual(json.loads(SEEN[0]["body"]), {"platform": "instagram", "user": "brand", "recipient_id": "u1", "message": "Thanks!", "buttons": [{"title": "Open", "url": "https://example.com"}]})
+        self.client.autodms.start("instagram", "brand", request_id="req_1", reply_message="Link inside", trigger_keywords=["link"], monitoring_interval=30)
+        self.assertEqual(SEEN[1]["path"], "/v1/autodms")
+        self.assertEqual(json.loads(SEEN[1]["body"]), {"platform": "instagram", "user": "brand", "request_id": "req_1", "reply_message": "Link inside", "trigger_keywords": ["link"], "monitoring_interval": 30})
+        self.client.autodms.stop("m1")
+        self.client.autodms.list(include_inactive=False, user="brand")
+        self.assertEqual(SEEN[2]["path"], "/v1/autodms/m1/stop")
+        self.assertEqual(SEEN[3]["path"], "/v1/autodms?include_inactive=false&profile_username=brand")
+
+    def test_edits_unpublishes_and_reposts(self):
+        self.client.posts.edit("req_1", "x", text="Fixed typo", fields={"x_keep_links": "true"})
+        self.assertEqual(json.loads(SEEN[0]["body"]), {"request_id": "req_1", "platform": "x", "text": "Fixed typo", "fields": {"x_keep_links": "true"}})
+        self.client.posts.unpublish(platform="bluesky", user="brand", post_id="at://p")
+        self.assertEqual(SEEN[1]["path"], "/v1/posts/unpublish")
+        self.client.posts.repost(platform="linkedin", user="brand", post_id="urn:li:share:1", target_linkedin_page_id="42")
+        self.assertEqual(json.loads(SEEN[2]["body"])["target_linkedin_page_id"], "42")
+
+    def test_youtube_subtitles_file_and_text(self):
+        self.client.youtube.subtitles.add("en", user="brand", video_id="v1", file=("en.srt", b"1\n00:00:00,000 --> 00:00:01,000\nHi"))
+        body = SEEN[0]["body"]
+        self.assertIn(b'name="video_id"\r\n\r\nv1', body)
+        self.assertIn(b'name="language"\r\n\r\nen', body)
+        self.assertIn(b'name="subtitles"; filename="en.srt"', body)
+        self.client.youtube.subtitles.add("ur", request_id="req_1", text="WEBVTT")
+        self.assertEqual(json.loads(SEEN[1]["body"]), {"request_id": "req_1", "language": "ur", "subtitle_text": "WEBVTT"})
+        self.client.youtube.set_thumbnail("https://example.com/t.jpg", user="brand", video_id="v1")
+        self.assertEqual(json.loads(SEEN[2]["body"]), {"user": "brand", "video_id": "v1", "thumbnail_url": "https://example.com/t.jpg"})
+
+    def test_lookups_analytics_and_preferences(self):
+        self.client.facebook.select_page("brand", "p1")
+        self.assertEqual(json.loads(SEEN[0]["body"]), {"profile_username": "brand", "facebook_page_id": "p1"})
+        self.client.pinterest.sections("brand", "b 1")
+        self.assertEqual(SEEN[1]["path"], "/v1/pinterest/boards/b%201/sections?profile_username=brand")
+        self.client.analytics.post_by_id("brand", "instagram", "1789")
+        self.assertEqual(SEEN[2]["path"], "/v1/post-analytics?profile_username=brand&platform=instagram&platform_post_id=1789")
+        self.client.analytics.impressions("brand", start_date="2026-10-01", end_date="2026-10-31", platforms=["x", "threads"])
+        self.assertEqual(SEEN[3]["path"], "/v1/analytics/brand/impressions?start_date=2026-10-01&end_date=2026-10-31&platforms=x%2Cthreads")
+        self.client.scheduled.thumbnail("job_1")
+        self.assertEqual(SEEN[4]["path"], "/v1/scheduled/job_1/thumbnail?format=json")
+        self.client.publishing_limits("brand", refresh=True)
+        self.assertEqual(SEEN[5]["path"], "/v1/publishing-limits?profile_username=brand&refresh=true")
+        self.client.preferences.set(timezone=None)
+        self.assertEqual(json.loads(SEEN[6]["body"]), {"timezone": None})
+
+
 class WebhookTest(unittest.TestCase):
     def sign(self, ts: str, body: str, secret: str = "whsec_1") -> str:
         return "sha256=" + hmac.new(secret.encode(), f"{ts}.{body}".encode(), hashlib.sha256).hexdigest()

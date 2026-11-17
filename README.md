@@ -95,8 +95,58 @@ reelspan.scheduled.list(profile_username="my-brand")
 reelspan.scheduled.cancel(job_id, with_later_repeats=True)
 ```
 
-Also: `queue`, `library`, `approvals`, `ai` (captions from a video or your text), `pinterest.create_board`, `webhooks`
-(account and per-profile), and `request(method, path)` for anything else.
+## Live posts
+
+```python
+reelspan.posts.edit(request_id, "x", text="Fixed the typo")
+reelspan.posts.repost(platform="linkedin", user="my-brand", post_id="urn:li:share:…", commentary="Worth a read")
+reelspan.posts.unpublish(request_id, "facebook")
+
+reelspan.youtube.subtitles.add("en", request_id=request_id, file="en.srt")
+reelspan.youtube.set_thumbnail("https://…/cover.jpg", user="my-brand", video_id="dQw4w9WgXcQ")
+```
+
+## Comments, DMs and AutoDM
+
+```python
+for c in reelspan.comments.all("instagram", "my-brand", request_id=request_id):
+    print(c["author"]["username"], c["text"])
+reelspan.comments.reply("instagram", "my-brand", comment_id, "Thank you!", request_id=request_id)
+reelspan.comments.moderate("youtube", "my-brand", "hide", comment_id, post_id=video_id)
+
+reelspan.dms.send("instagram", "my-brand", recipient_id, "Here is the link", buttons=[{"title": "Open", "url": "https://…"}])
+
+# answer every comment that says "link" with a DM, for 15 days
+monitor = reelspan.autodms.start("instagram", "my-brand", request_id=request_id, reply_message="Here you go: https://…", trigger_keywords=["link"])["monitor"]
+reelspan.autodms.logs(monitor["monitor_id"])
+```
+
+## All methods
+
+| Group | Methods |
+| --- | --- |
+| account | `me()`, `platforms()`, `permissions()`, `activity()`, `publishing_limits()`, `preferences.get/set` |
+| `profiles` | `list`, `get`, `create`, `rename`, `delete` |
+| `accounts`, `connect` | `accounts.connect/disconnect`, `connect.link/validate/oauth_start` |
+| `posts` | `video`, `photos`, `text`, `document`, `status`, `wait`, `retry`, `history`, `all`, `edit`, `unpublish`, `repost` |
+| `scheduled` | `list`, `get`, `edit`, `cancel`, `preview`, `thumbnail` |
+| `queue` | `settings`, `set_settings`, `preview`, `next_slot`, `mark_full`, `mark_open` |
+| `media`, `library` | `media.upload`; `library.list/keep/import_url/remove/file_url` |
+| `analytics` | `account`, `history`, `post`, `post_by_id`, `impressions`, `best_times`, `report` |
+| `comments` | `list`, `all`, `create`, `reply`, `private_reply`, `moderate`, `delete` |
+| `dms` | `conversations`, `send` |
+| `autodms` | `start`, `list`, `get`, `logs`, `pause`, `resume`, `stop`, `check`, `delete` |
+| `youtube` | `subtitles.list/add/delete`, `set_thumbnail` |
+| `facebook` | `pages`, `select_page`, `clear_page`, `page_info`, `update_page_info` |
+| `linkedin` | `pages`, `select_page`, `clear_page` |
+| `google_business` | `locations`, `select_location`, `clear_location` |
+| `pinterest` | `boards`, `create_board`, `sections`, `create_section`, `save_pin` |
+| `tiktok`, `reddit` | `tiktok.creator_info`, `reddit.posts` |
+| `ai` | `write_captions`, `rewrite_captions` |
+| `approvals` | `create`, `list`, `delete` |
+| `webhooks` | `get`, `set`, `delete`, `test`, `deliveries`, `redeliver`, `rotate_secret`, `profile.get/set/delete` |
+
+`request(method, path)` reaches anything else.
 
 ## Webhooks
 

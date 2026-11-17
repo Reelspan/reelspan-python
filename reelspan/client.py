@@ -59,6 +59,10 @@ class ReelspanConnectionError(Exception):
     """The request never got an answer: the network failed or it timed out (after the retries)."""
 
 
+class _Exact(dict):
+    """A JSON body sent as it is, None values included (as null)."""
+
+
 class RateLimit(dict):
     """The rate limit the API reported on the last answer: limit, remaining, reset (a Unix time)."""
 
@@ -173,6 +177,16 @@ class Reelspan:
         self.analytics = _Analytics(self)
         self.approvals = _Approvals(self)
         self.webhooks = _Webhooks(self)
+        self.comments = _Comments(self)
+        self.dms = _Dms(self)
+        self.autodms = _AutoDms(self)
+        self.youtube = _YouTube(self)
+        self.facebook = _Facebook(self)
+        self.linkedin = _LinkedIn(self)
+        self.google_business = _GoogleBusiness(self)
+        self.tiktok = _TikTok(self)
+        self.reddit = _Reddit(self)
+        self.preferences = _Preferences(self)
 
     def __repr__(self) -> str:
         return f"Reelspan(base_url={self._base!r})"
@@ -216,7 +230,8 @@ class Reelspan:
         if form is not None or files:
             data, headers["Content-Type"] = _multipart(_flatten(form or {}), [(name, _Source(f)) for name, f in (files or [])])
         elif json_body is not None:
-            data = json.dumps({k: v for k, v in json_body.items() if v is not None} if isinstance(json_body, dict) else json_body).encode()
+            # None means "not sent"; an _Exact body keeps its None values (sent as null)
+            data = json.dumps({k: v for k, v in json_body.items() if v is not None} if isinstance(json_body, dict) and not isinstance(json_body, _Exact) else json_body).encode()
             headers["Content-Type"] = "application/json"
         # a GET, PUT or DELETE repeats safely; a POST or PATCH only with an idempotency key
         safe = method.upper() in ("GET", "HEAD", "PUT", "DELETE") or bool(idempotency_key)
@@ -260,6 +275,21 @@ class Reelspan:
     def platforms(self) -> Dict[str, Any]:
         """Every network and whether it is open, with what it takes."""
         return self.request("GET", "/platforms")
+
+    def permissions(self) -> Dict[str, Any]:
+        """Features that wait for a network's approval, and which are live."""
+        return self.request("GET", "/v1/permissions")
+
+    def activity(self, limit: Optional[int] = None, before: Optional[str] = None, profile: Optional[str] = None, type: Optional[str] = None) -> Dict[str, Any]:  # noqa: A002 - the API's name
+        """The workspace's activity log, newest first: what was done and by whom.
+
+        ``type`` is one of posts, comments, accounts, team, developers, billing or security; ``before`` an entry id.
+        """
+        return self.request("GET", "/v1/activity", query={"limit": limit, "before": before, "profile": profile, "type": type})
+
+    def publishing_limits(self, username: str, platform: Optional[str] = None, refresh: bool = False) -> Dict[str, Any]:
+        """What a profile's Instagram and Threads accounts may still post in the next 24 hours, read live."""
+        return self.request("GET", "/v1/publishing-limits", query={"profile_username": username, "platform": platform, "refresh": "true" if refresh else None})
 
 
 def _float(value: Any) -> Optional[float]:
@@ -420,13 +450,33 @@ class _Posts(_Group):
                 return s
             time.sleep(interval)
 
-    def retry(self, request_id: str, platforms: Optional[Sequence[str]] = None, fields: Optional[Mapping[str, Any]] = None, job_id: Optional[str] = None) -> Dict[str, Any]:
+    def retry(self, request_id: str, platforms: Optional[Sequence[str]] = None, fields: Optional[Mapping[str, Any]] = None, job_id: Optional[str] = None, scheduled_date: Optional[str] = None, timezone: Optional[str] = None) -> Dict[str, Any]:
         """Sends the failed networks again, with the media it already has.
 
-        ``fields`` changes settings for this try (e.g. a new caption). Not repeated automatically on a network error:
-        the server can't tell a repeat from a new retry.
+        ``fields`` changes settings for this try (e.g. a new caption); ``scheduled_date`` retries later instead of now.
+        Not repeated automatically on a network error: the server can't tell a repeat from a new retry.
         """
-        return self._c.request("POST", "/v1/posts/retry", json_body={"request_id": request_id, "job_id": job_id, "platforms": list(platforms) if platforms else None, "fields": dict(fields) if fields else None})
+        return self._c.request("POST", "/v1/posts/retry", json_body={"request_id": request_id, "job_id": job_id, "platforms": list(platforms) if platforms else None, "fields": dict(fields) if fields else None, "scheduled_date": scheduled_date, "timezone": timezone})
+
+    def unpublish(self, request_id: Optional[str] = None, platform: Optional[str] = None, user: Optional[str] = None, post_id: Optional[str] = None) -> Dict[str, Any]:
+        """Deletes a live post on the network itself (not TikTok, which has no delete, or Instagram stories).
+
+        Name it by ``request_id`` (with ``platform`` when it went to several networks), or ``platform``, ``user`` and
+        the network's ``post_id``.
+        """
+        return self._c.request("POST", "/v1/posts/unpublish", json_body=_target(request_id, platform, user, post_id))
+
+    def edit(self, request_id: Optional[str] = None, platform: Optional[str] = None, user: Optional[str] = None, post_id: Optional[str] = None, *, text: Optional[str] = None, title: Optional[str] = None, description: Optional[str] = None, fields: Optional[Mapping[str, str]] = None) -> Dict[str, Any]:
+        """Changes a live post where the network allows it.
+
+        ``fields`` changes network settings by upload field name (e.g. ``{"pinterest_link": "https://..."}``). An edit
+        on X makes a new post id, returned with ``previous_post_id``.
+        """
+        return self._c.request("POST", "/v1/posts/edit", json_body={**_target(request_id, platform, user, post_id), "text": text, "title": title, "description": description, "fields": dict(fields) if fields else None})
+
+    def repost(self, request_id: Optional[str] = None, platform: Optional[str] = None, user: Optional[str] = None, post_id: Optional[str] = None, *, commentary: Optional[str] = None, target_linkedin_page_id: Optional[str] = None) -> Dict[str, Any]:
+        """Reshares a post from the profile's account (any public post, not only your own)."""
+        return self._c.request("POST", "/v1/posts/repost", json_body={**_target(request_id, platform, user, post_id), "commentary": commentary, "target_linkedin_page_id": target_linkedin_page_id})
 
     def history(self, **query: Any) -> Dict[str, Any]:
         """One page of history (page=, limit= 10/20/50/100, platform=, status=, profile_username=, start=, end=…)."""
@@ -459,6 +509,14 @@ class _Scheduled(_Group):
     def cancel(self, job_id: str, with_later_repeats: bool = False) -> Dict[str, Any]:
         """with_later_repeats also cancels the later posts of a repeating series."""
         return self._c.request("DELETE", f"/v1/scheduled/{parse.quote(job_id)}", query={"series": "rest" if with_later_repeats else None})
+
+    def preview(self, job_id: str) -> Dict[str, Any]:
+        """Signed links (valid an hour) to every file the scheduled post will publish."""
+        return self._c.request("GET", f"/v1/scheduled/{parse.quote(job_id)}/preview")
+
+    def thumbnail(self, job_id: str) -> Dict[str, Any]:
+        """A signed link (valid an hour) to a 480 px JPEG of the post: a video frame, or the cover or first photo."""
+        return self._c.request("GET", f"/v1/scheduled/{parse.quote(job_id)}/thumbnail", query={"format": "json"})
 
 
 class _Queue(_Group):
@@ -582,9 +640,23 @@ class _Ai(_Group):
 
 
 class _Pinterest(_Group):
-    def create_board(self, username: str, name: str) -> Dict[str, Any]:
-        """Creates a board on the profile's Pinterest account."""
-        return self._c.request("POST", "/v1/pinterest/boards", json_body={"profile_username": username, "name": name})
+    def boards(self, username: str) -> Dict[str, Any]:
+        """The boards of the profile's Pinterest account, read live."""
+        return self._c.request("GET", "/v1/pinterest/boards", query={"profile_username": username})
+
+    def create_board(self, username: str, name: str, description: Optional[str] = None, privacy: Optional[str] = None) -> Dict[str, Any]:
+        """Creates a board on the profile's Pinterest account. ``privacy``: PUBLIC, or PROTECTED (hidden, still postable)."""
+        return self._c.request("POST", "/v1/pinterest/boards", json_body={"profile_username": username, "name": name, "description": description, "privacy": privacy})
+
+    def sections(self, username: str, board_id: str) -> Dict[str, Any]:
+        return self._c.request("GET", f"/v1/pinterest/boards/{parse.quote(board_id, safe='')}/sections", query={"profile_username": username})
+
+    def create_section(self, username: str, board_id: str, name: str) -> Dict[str, Any]:
+        return self._c.request("POST", f"/v1/pinterest/boards/{parse.quote(board_id, safe='')}/sections", json_body={"profile_username": username, "name": name})
+
+    def save_pin(self, username: str, pin_id: str, board_id: str, section_id: Optional[str] = None) -> Dict[str, Any]:
+        """Saves (repins) a Pin to one of the account's boards."""
+        return self._c.request("POST", "/v1/posts/save", json_body={"profile_username": username, "platform": "pinterest", "post_id": pin_id, "pinterest_board_id": board_id, "pinterest_board_section_id": section_id})
 
 
 class _Analytics(_Group):
@@ -595,7 +667,19 @@ class _Analytics(_Group):
         return self._c.request("GET", f"/v1/analytics/{parse.quote(username)}/history", query={"days": days, "platforms": platforms})
 
     def post(self, request_id: str, platform: Optional[str] = None) -> Dict[str, Any]:
+        """Stats of a post Reelspan published, by its request_id."""
         return self._c.request("GET", f"/v1/post-analytics/{parse.quote(request_id)}", query={"platform": platform})
+
+    def post_by_id(self, username: str, platform: str, platform_post_id: str) -> Dict[str, Any]:
+        """Stats of any post of the profile's account by the network's own id, including posts made outside Reelspan."""
+        return self._c.request("GET", "/v1/post-analytics", query={"profile_username": username, "platform": platform, "platform_post_id": platform_post_id})
+
+    def impressions(self, username: str, days: Optional[int] = None, start_date: Optional[str] = None, end_date: Optional[str] = None, platforms: Optional[Sequence[str]] = None, metrics: Optional[Sequence[str]] = None) -> Dict[str, Any]:
+        """Impressions and views (or other ``metrics``) added up over a period, per network and per day.
+
+        The last ``days`` (default 30), or ``start_date`` to ``end_date`` (YYYY-MM-DD, inclusive).
+        """
+        return self._c.request("GET", f"/v1/analytics/{parse.quote(username)}/impressions", query={"days": days, "start_date": start_date, "end_date": end_date, "platforms": platforms, "metrics": metrics})
 
     def best_times(self, username: str, timezone: Optional[str] = None, platforms: Optional[Sequence[str]] = None) -> Dict[str, Any]:
         return self._c.request("GET", f"/v1/best-times/{parse.quote(username)}", query={"timezone": timezone, "platforms": platforms})
@@ -654,6 +738,266 @@ class _Webhooks(_Group):
     def rotate_secret(self) -> Dict[str, Any]:
         """A new signing secret; the old one stops working."""
         return self._c.request("POST", "/v1/webhook/secret")
+
+
+def _target(request_id: Optional[str], platform: Optional[str], user: Optional[str], post_id: Optional[str]) -> Dict[str, Any]:
+    return {"request_id": request_id, "platform": platform, "user": user, "post_id": post_id}
+
+
+def _on_post(platform: str, user: str, post_id: Optional[str], post_url: Optional[str], request_id: Optional[str]) -> Dict[str, Any]:
+    return {"platform": platform, "user": user, "post_id": post_id, "post_url": post_url, "request_id": request_id}
+
+
+def _bool(value: Optional[bool]) -> Optional[str]:
+    return None if value is None else ("true" if value else "false")
+
+
+def _dicts(items: Optional[Sequence[Mapping[str, Any]]]) -> Optional[List[Dict[str, Any]]]:
+    return [dict(x) for x in items] if items else None
+
+
+class _Comments(_Group):
+    """Comments under posts, in one shape for every network that has them.
+
+    Name the post by ``post_id``, ``post_url`` (Instagram, Bluesky) or the ``request_id`` that published it.
+    """
+
+    def list(self, platform: str, user: str, post_id: Optional[str] = None, *, post_url: Optional[str] = None, request_id: Optional[str] = None, comment_id: Optional[str] = None, held: Optional[bool] = None, limit: Optional[int] = None, cursor: Optional[str] = None) -> Dict[str, Any]:
+        """Comments under a post (newest first where the network can sort), or replies to ``comment_id``.
+
+        ``held`` lists only YouTube comments held for review. On X, no post lists the account's mentions.
+        """
+        return self._c.request("GET", "/v1/comments", query={**_on_post(platform, user, post_id, post_url, request_id), "comment_id": comment_id, "held": _bool(held), "limit": limit, "cursor": cursor})
+
+    def all(self, platform: str, user: str, post_id: Optional[str] = None, **kw: Any) -> Iterator[Dict[str, Any]]:
+        """Every comment, page by page: ``for c in reelspan.comments.all("youtube", "my-brand", "vid1"): ...``"""
+        kw.pop("cursor", None)
+        kw["limit"] = 100
+        cursor: Optional[str] = None
+        while True:
+            r = self.list(platform, user, post_id, cursor=cursor, **kw)
+            rows = r.get("comments") or []
+            yield from rows
+            page = r.get("pagination") or {}
+            cursor = page.get("next_cursor")
+            if not rows or not page.get("has_next") or not cursor:
+                return
+
+    def create(self, platform: str, user: str, message: str, post_id: Optional[str] = None, *, post_url: Optional[str] = None, request_id: Optional[str] = None, comment_id: Optional[str] = None, attachment_url: Optional[str] = None) -> Dict[str, Any]:
+        """Comments on the post, or replies to ``comment_id``. ``attachment_url`` puts an image under it on Facebook."""
+        return self._c.request("POST", "/v1/comments", json_body={**_on_post(platform, user, post_id, post_url, request_id), "message": message, "comment_id": comment_id, "attachment_url": attachment_url})
+
+    def reply(self, platform: str, user: str, comment_id: str, message: str, post_id: Optional[str] = None, *, post_url: Optional[str] = None, request_id: Optional[str] = None) -> Dict[str, Any]:
+        """Replies to a comment in public."""
+        return self._c.request("POST", "/v1/comments/public-reply", json_body={**_on_post(platform, user, post_id, post_url, request_id), "comment_id": comment_id, "message": message})
+
+    def private_reply(self, platform: str, user: str, comment_id: str, message: str, buttons: Optional[Sequence[Mapping[str, str]]] = None) -> Dict[str, Any]:
+        """Answers a comment with a DM to its author (Instagram, under 7 days and once per comment; Facebook).
+
+        ``buttons``: up to 3 ``{"title": ..., "url": ...}`` links.
+        """
+        return self._c.request("POST", "/v1/comments/reply", json_body={"platform": platform, "user": user, "comment_id": comment_id, "message": message, "buttons": _dicts(buttons)})
+
+    def moderate(self, platform: str, user: str, action: str, comment_id: Optional[str] = None, *, post_id: Optional[str] = None, post_url: Optional[str] = None, request_id: Optional[str] = None, message: Optional[str] = None) -> Dict[str, Any]:
+        """Acts on a comment; each network allows its own actions.
+
+        hide, unhide, like, unlike, approve, ignore, hold, ban_author, edit (with ``message``), enable_comments or
+        disable_comments (on the post, no comment_id).
+        """
+        return self._c.request("POST", "/v1/comments/action", json_body={**_on_post(platform, user, post_id, post_url, request_id), "action": action, "comment_id": comment_id, "message": message})
+
+    def delete(self, platform: str, user: str, comment_id: str, *, post_id: Optional[str] = None, post_url: Optional[str] = None, request_id: Optional[str] = None) -> Dict[str, Any]:
+        """Your own comments; on Instagram, Facebook and YouTube any comment on your posts. LinkedIn needs the post too."""
+        return self._c.request("DELETE", "/v1/comments", json_body={**_on_post(platform, user, post_id, post_url, request_id), "comment_id": comment_id})
+
+
+class _Dms(_Group):
+    """Direct messages. Instagram and Facebook answer only people who wrote to the account in the last 24 hours."""
+
+    def conversations(self, platform: str, user: str, limit: Optional[int] = None, cursor: Optional[str] = None, participant_id: Optional[str] = None, messages_limit: Optional[int] = None) -> Dict[str, Any]:
+        """Conversations, newest first, each with its latest messages."""
+        return self._c.request("GET", "/v1/dms/conversations", query={"platform": platform, "user": user, "limit": limit, "cursor": cursor, "participant_id": participant_id, "messages_limit": messages_limit})
+
+    def send(self, platform: str, user: str, recipient_id: str, message: str, *, buttons: Optional[Sequence[Mapping[str, str]]] = None, attachments: Optional[Sequence[Mapping[str, str]]] = None, quick_replies: Optional[Sequence[Mapping[str, str]]] = None, reply_to: Optional[str] = None) -> Dict[str, Any]:
+        """Sends a message.
+
+        ``recipient_id``: the scoped user id on Instagram/Facebook, the user id on X, a handle or DID on Bluesky,
+        @user@server on Mastodon. ``attachments``: ``{"type": "image"|"video"|"audio"|"file", "url": ...}``.
+        """
+        return self._c.request("POST", "/v1/dms/send", json_body={"platform": platform, "user": user, "recipient_id": recipient_id, "message": message, "buttons": _dicts(buttons), "attachments": _dicts(attachments), "quick_replies": _dicts(quick_replies), "reply_to": reply_to})
+
+
+class _AutoDms(_Group):
+    """AutoDM monitors: answer each new comment on a post, privately and/or in public, for 15 days."""
+
+    def start(self, platform: str, user: str, post_id: Optional[str] = None, *, post_url: Optional[str] = None, request_id: Optional[str] = None, reply_message: Optional[str] = None, reply_messages: Optional[Sequence[str]] = None, buttons: Optional[Sequence[Mapping[str, str]]] = None, trigger_keywords: Optional[Sequence[str]] = None, monitoring_interval: Optional[int] = None, include_existing: Optional[bool] = None) -> Dict[str, Any]:
+        """Starts a monitor on a post.
+
+        ``reply_message`` is the private reply (a DM to each commenter); ``reply_messages`` are public replies used in
+        turn, with ``{username}`` replaced. ``trigger_keywords`` answers only comments containing one;
+        ``monitoring_interval`` is minutes between checks (5 to 1440, default 15).
+        """
+        return self._c.request("POST", "/v1/autodms", json_body={
+            **_on_post(platform, user, post_id, post_url, request_id),
+            "reply_message": reply_message,
+            "reply_messages": list(reply_messages) if reply_messages else None,
+            "buttons": _dicts(buttons),
+            "trigger_keywords": list(trigger_keywords) if trigger_keywords else None,
+            "monitoring_interval": monitoring_interval,
+            "include_existing": include_existing,
+        })
+
+    def list(self, include_inactive: Optional[bool] = None, user: Optional[str] = None, platform: Optional[str] = None) -> Dict[str, Any]:
+        return self._c.request("GET", "/v1/autodms", query={"include_inactive": _bool(include_inactive), "profile_username": user, "platform": platform})
+
+    def get(self, monitor_id: str) -> Dict[str, Any]:
+        return self._c.request("GET", f"/v1/autodms/{parse.quote(monitor_id)}")
+
+    def logs(self, monitor_id: str, limit: Optional[int] = None) -> Dict[str, Any]:
+        """What the monitor answered (and skipped), newest first."""
+        return self._c.request("GET", f"/v1/autodms/{parse.quote(monitor_id)}/logs", query={"limit": limit})
+
+    def pause(self, monitor_id: str) -> Dict[str, Any]:
+        return self._c.request("POST", f"/v1/autodms/{parse.quote(monitor_id)}/pause")
+
+    def resume(self, monitor_id: str) -> Dict[str, Any]:
+        return self._c.request("POST", f"/v1/autodms/{parse.quote(monitor_id)}/resume")
+
+    def stop(self, monitor_id: str) -> Dict[str, Any]:
+        """Stops the monitor for good."""
+        return self._c.request("POST", f"/v1/autodms/{parse.quote(monitor_id)}/stop")
+
+    def check(self, monitor_id: str) -> Dict[str, Any]:
+        """Checks a running monitor's post now instead of at the next interval."""
+        return self._c.request("POST", f"/v1/autodms/{parse.quote(monitor_id)}/check")
+
+    def delete(self, monitor_id: str) -> Dict[str, Any]:
+        """Deletes the monitor and its logs."""
+        return self._c.request("DELETE", f"/v1/autodms/{parse.quote(monitor_id)}")
+
+
+def _video(request_id: Optional[str], user: Optional[str], video_id: Optional[str]) -> Dict[str, Any]:
+    return {"request_id": request_id, "user": user, "video_id": video_id}
+
+
+class _Subtitles(_Group):
+    """Subtitle tracks of a published YouTube video: the ``request_id`` that published it, or ``user`` with ``video_id``."""
+
+    def list(self, request_id: Optional[str] = None, user: Optional[str] = None, video_id: Optional[str] = None) -> Dict[str, Any]:
+        return self._c.request("GET", "/v1/youtube/subtitles", query=_video(request_id, user, video_id))
+
+    def add(self, language: str, *, request_id: Optional[str] = None, user: Optional[str] = None, video_id: Optional[str] = None, name: Optional[str] = None, file: Optional[FileInput] = None, text: Optional[str] = None, url: Optional[str] = None) -> Dict[str, Any]:
+        """Adds a track from a ``file`` (a path or (name, bytes); SRT, VTT, SBV…, up to 5 MB), its ``text``, or a public ``url``.
+
+        ``language`` is BCP-47: en, ur, pt-BR…
+        """
+        fields = {**_video(request_id, user, video_id), "language": language, "name": name, "subtitle_text": text, "subtitle_url": url}
+        if file is not None:
+            return self._c.request("POST", "/v1/youtube/subtitles", form=fields, files=[("subtitles", file)])
+        return self._c.request("POST", "/v1/youtube/subtitles", json_body=fields)
+
+    def delete(self, subtitle_id: str, *, request_id: Optional[str] = None, user: Optional[str] = None, video_id: Optional[str] = None) -> Dict[str, Any]:
+        return self._c.request("DELETE", "/v1/youtube/subtitles", json_body={**_video(request_id, user, video_id), "subtitle_id": subtitle_id})
+
+
+class _YouTube(_Group):
+    """Published YouTube videos: subtitle tracks and thumbnails."""
+
+    def __init__(self, client: Reelspan):
+        super().__init__(client)
+        self.subtitles = _Subtitles(client)
+
+    def set_thumbnail(self, thumbnail: Optional[FileInput] = None, *, request_id: Optional[str] = None, user: Optional[str] = None, video_id: Optional[str] = None, media_id: Optional[str] = None) -> Dict[str, Any]:
+        """Sets a new thumbnail (JPEG, PNG, GIF or BMP up to 2 MB): a path, (name, bytes), a public URL, or ``media_id``.
+
+        Needs a verified channel; Shorts don't show custom thumbnails.
+        """
+        target = _video(request_id, user, video_id)
+        if thumbnail is None or _is_url(thumbnail):
+            return self._c.request("POST", "/v1/youtube/thumbnail", json_body={**target, "thumbnail_url": thumbnail, "thumbnail_media_id": media_id})
+        return self._c.request("POST", "/v1/youtube/thumbnail", form=target, files=[("thumbnail", thumbnail)])
+
+
+class _Facebook(_Group):
+    """The Facebook Pages connected to a profile, and which one posts go to."""
+
+    def pages(self, username: str) -> Dict[str, Any]:
+        return self._c.request("GET", "/v1/facebook/pages", query={"profile_username": username})
+
+    def select_page(self, username: str, page_id: str) -> Dict[str, Any]:
+        """The Page used when a post sends no facebook_page_id."""
+        return self._c.request("POST", "/v1/facebook/page", json_body={"profile_username": username, "facebook_page_id": page_id})
+
+    def clear_page(self, username: str) -> Dict[str, Any]:
+        return self._c.request("DELETE", "/v1/facebook/page", json_body={"profile_username": username})
+
+    def page_info(self, username: str, page_id: Optional[str] = None) -> Dict[str, Any]:
+        """A Page's about, website, phone, hours, category, picture and cover (default: the chosen Page)."""
+        return self._c.request("GET", "/v1/facebook/page-info", query={"profile_username": username, "page_id": page_id})
+
+    def update_page_info(self, username: str, page_id: Optional[str] = None, validate_only: bool = False, **info: Any) -> Dict[str, Any]:
+        """Changes a Page's about, description, website, phone, emails or hours; ``validate_only`` saves nothing."""
+        return self._c.request("PATCH", "/v1/facebook/page-info", json_body={"profile_username": username, "page_id": page_id, "validate_only": validate_only or None, **info})
+
+
+class _LinkedIn(_Group):
+    """LinkedIn company pages the profile's member administers, and which one posts go out as."""
+
+    def pages(self, username: str) -> Dict[str, Any]:
+        return self._c.request("GET", "/v1/linkedin/pages", query={"profile_username": username})
+
+    def select_page(self, username: str, page_id: str) -> Dict[str, Any]:
+        """Posts with no target_linkedin_page_id go out as this page."""
+        return self._c.request("POST", "/v1/linkedin/page", json_body={"profile_username": username, "linkedin_page_id": page_id})
+
+    def clear_page(self, username: str) -> Dict[str, Any]:
+        """Posts go out as the member again."""
+        return self._c.request("DELETE", "/v1/linkedin/page", json_body={"profile_username": username})
+
+
+class _GoogleBusiness(_Group):
+    """Google Business locations, and which one posts go to."""
+
+    def locations(self, username: str, refresh: bool = False) -> Dict[str, Any]:
+        """As saved when the account was connected; ``refresh`` reads them again from Google."""
+        return self._c.request("GET", "/v1/google-business/locations", query={"profile_username": username, "refresh": "true" if refresh else None})
+
+    def select_location(self, username: str, location_id: str) -> Dict[str, Any]:
+        return self._c.request("POST", "/v1/google-business/location", json_body={"profile_username": username, "location_id": location_id})
+
+    def clear_location(self, username: str) -> Dict[str, Any]:
+        return self._c.request("DELETE", "/v1/google-business/location", json_body={"profile_username": username})
+
+
+class _TikTok(_Group):
+    def creator_info(self, username: str) -> Dict[str, Any]:
+        """What the profile's TikTok account may post: privacy levels, interactions and its longest video."""
+        return self._c.request("GET", "/v1/tiktok/creator-info", query={"profile_username": username})
+
+
+class _Reddit(_Group):
+    def posts(self, username: str, limit: Optional[int] = None, after: Optional[str] = None) -> Dict[str, Any]:
+        """The account's Reddit posts with score, comments, views and media. Page with ``after``."""
+        return self._c.request("GET", "/v1/reddit/posts", query={"profile_username": username, "limit": limit, "after": after})
+
+
+_UNSET: Any = object()
+
+
+class _Preferences(_Group):
+    """Workspace preferences: the first day of the week, and the zone scheduled_date is read in when a post sends none."""
+
+    def get(self) -> Dict[str, Any]:
+        return self._c.request("GET", "/v1/preferences")
+
+    def set(self, *, week_start_day: Optional[int] = _UNSET, timezone: Optional[str] = _UNSET) -> Dict[str, Any]:
+        """Send only what changes: ``week_start_day`` 0 (Sunday) or 1 (Monday); ``timezone=None`` goes back to UTC."""
+        body = _Exact()
+        if week_start_day is not _UNSET:
+            body["weekStartDay"] = week_start_day
+        if timezone is not _UNSET:
+            body["timezone"] = timezone
+        return self._c.request("POST", "/v1/preferences", json_body=body)
 
 
 def verify_webhook(raw_body: Union[str, bytes], signature: Optional[str], timestamp: Optional[str], secret: str, tolerance: int = 300) -> bool:
