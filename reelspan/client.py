@@ -363,6 +363,14 @@ class _Accounts(_Group):
     def disconnect(self, username: str, platform: str) -> Dict[str, Any]:
         return self._c.request("DELETE", "/v1/accounts", json_body={"profile_username": username, "social_platform": platform})
 
+    def health(self, username: str) -> Dict[str, Any]:
+        """Checks live that each account of a profile is still signed in, and when its access runs out.
+
+        Each account is ``ok``, ``signed_out``, ``expiring`` (within 7 days), ``not_checked`` or ``error``. Run it before a
+        batch of posts.
+        """
+        return self._c.request("GET", "/v1/accounts/health", query={"profile": username})
+
 
 class _Connect(_Group):
     def link(self, username: str, **branding: Any) -> Dict[str, Any]:
@@ -438,14 +446,20 @@ class _Posts(_Group):
             files.append(("document", document))
         return self._c.request("POST", "/v1/posts/document", form=form, files=files, idempotency_key=key)
 
-    def status(self, request_id: Optional[str] = None, job_id: Optional[str] = None) -> Dict[str, Any]:
-        return self._c.request("GET", "/v1/posts/status", query={"request_id": request_id, "job_id": job_id})
+    def status(self, request_id: Optional[str] = None, job_id: Optional[str] = None, wait_seconds: Optional[int] = None) -> Dict[str, Any]:
+        """Each network's result. ``wait_seconds`` (up to 120) has the answer wait until every network has finished."""
+        return self._c.request("GET", "/v1/posts/status", query={"request_id": request_id, "job_id": job_id, "wait": wait_seconds})
 
-    def wait(self, request_id: str, timeout: float = 600.0, interval: float = 5.0) -> Dict[str, Any]:
-        """Polls the status (every 5 s by default, the API's advice) until every network has finished, or the timeout passes."""
+    def wait(self, request_id: str, timeout: float = 600.0, interval: float = 1.0) -> Dict[str, Any]:
+        """Waits until every network has finished, or the timeout passes.
+
+        The server holds each answer up to a minute until something finishes, so this makes a few calls instead of
+        polling every few seconds.
+        """
         end = time.monotonic() + timeout
         while True:
-            s = self.status(request_id=request_id)
+            left = max(0, int(end - time.monotonic()))
+            s = self.status(request_id=request_id, wait_seconds=min(60, left))
             if s.get("status") in _TERMINAL or time.monotonic() > end:
                 return s
             time.sleep(interval)

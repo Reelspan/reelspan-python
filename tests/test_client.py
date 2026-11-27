@@ -109,6 +109,14 @@ class ClientTest(unittest.TestCase):
         self.client.scheduled.cancel("sched_1", with_later_repeats=True)
         self.assertEqual(SEEN[1]["path"], "/v1/scheduled/sched_1?series=rest")
 
+    def test_account_health_and_server_side_wait(self):
+        self.client.accounts.health("brand")
+        self.assertEqual(SEEN[-1]["path"], "/v1/accounts/health?profile=brand")
+        self.client.posts.status(request_id="r1", wait_seconds=90)
+        self.assertEqual(SEEN[-1]["path"], "/v1/posts/status?request_id=r1&wait=90")
+        self.client.posts.wait("r1", timeout=30)
+        self.assertRegex(SEEN[-1]["path"], r"^/v1/posts/status\?request_id=r1&wait=(29|30)$")
+
     def test_errors_carry_status_and_code(self):
         with self.assertRaises(ReelspanError) as ctx:
             self.client.profiles.get("nobody")

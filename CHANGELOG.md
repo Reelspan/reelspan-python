@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.0
+
+- `accounts.health(username)`: checks live that each connected account is still signed in, and when its access runs
+  out (`ok`, `signed_out`, `expiring`, `not_checked` or `error`).
+- `posts.status` takes `wait_seconds` (up to 120) to answer once every network has finished; `posts.wait` uses it, so
+  it makes a few calls instead of polling every 5 seconds.
+- Works with the API's new fields without changes: `{youtube.post_url}` links between the networks of one post,
+  `{network}_caption`, uploaded thumbnails (`youtube.set_thumbnail(media_id=...)`), and `analytics.post` now returns
+  each network's `readings` (24h, 72h, 7d) and `over_time`.
+
 ## 1.1.0
 
 Covers the rest of the v1 API.
