@@ -1,21 +1,39 @@
-# Publishes to PyPI when a GitHub release is published (tag v1.2.3, matching reelspan/_version.py). Uses PyPI trusted
-# publishing: no token is stored here; pypi.org trusts this workflow.
+# Releasing is one step: raise the version in reelspan/_version.py (with its CHANGELOG section) and push to main. When
+# the version has no GitHub release yet, this tests, builds, publishes to PyPI with trusted publishing (no token is
+# stored here; pypi.org trusts this workflow), then creates the release v1.2.3 with that version's CHANGELOG section
+# as its notes. Other pushes stop after the check.
 name: Release
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
+  workflow_dispatch:
 permissions:
   contents: read
+concurrency: release
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      new: ${{ steps.v.outputs.new }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="$(python3 -c 'import re; print(re.search(r"__version__\s*=\s*[\"\x27]([^\"\x27]+)", open("reelspan/_version.py").read()).group(1))')"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          if gh release view "v$v" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then echo "new=false" >> "$GITHUB_OUTPUT"; else echo "new=true" >> "$GITHUB_OUTPUT"; fi
   build:
+    needs: check
+    if: needs.check.outputs.new == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - name: Tag matches the version
-        run: test "v$(python -c 'from reelspan._version import __version__ as v; print(v)')" = "${GITHUB_REF_NAME}"
       - run: python -m unittest discover -s tests
       - run: python -m pip install build && python -m build
       - uses: actions/upload-artifact@v4
@@ -23,7 +41,7 @@ jobs:
           name: dist
           path: dist/
   publish:
-    needs: build
+    needs: [check, build]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -34,3 +52,18 @@ jobs:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
+  release:
+    needs: [check, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ needs.check.outputs.version }}
+        run: |
+          awk -v v="$V" '$0=="## "v{f=1;next} /^## /{if(f)exit} f' CHANGELOG.md > notes.md
+          gh release create "v$V" --target "$GITHUB_SHA" --title "$V" --notes-file notes.md
